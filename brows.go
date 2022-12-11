@@ -32,6 +32,9 @@ var (
 		b.Left = "┤"
 		return titleStyle.Copy().BorderStyle(b)
 	}()
+
+	focusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+	releaseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5C5C5C"))
 )
 
 type Config struct {
@@ -317,6 +320,55 @@ func (m model) View() string {
 	return s
 }
 
+func isMajor(v *semver.Version) bool {
+	return v.Minor() == 0 && v.Patch() == 0 && v.Prerelease() == ""
+}
+
+func isMinor(v *semver.Version) bool {
+	return v.Minor() != 0 && v.Patch() == 0 && v.Prerelease() == ""
+}
+
+func isPatch(v *semver.Version) bool {
+	return v.Patch() != 0 && v.Prerelease() == ""
+}
+
+func (m model) releaseList() string {
+	// TODO: take a window of tags (max length = window width)
+	// add next/prev arrows if off window
+
+	// render as major/minor/patch
+	rendered := ""
+	var style lipgloss.Style
+
+	for _, t := range m.tagList {
+		if t.tag == m.focus.tag {
+			style = focusStyle
+		} else {
+			style = releaseStyle
+		}
+
+		switch {
+		case isMajor(t.parsed):
+			rendered += style.Render("▇")
+
+		case isMinor(t.parsed):
+			rendered += style.Render("▅")
+
+		case isPatch(t.parsed):
+			rendered += style.Render("▂")
+
+		default:
+			rendered += style.Render("_")
+		}
+	}
+
+	// center in window
+	var centered = lipgloss.NewStyle().
+    Width(m.viewport.Width).
+    Align(lipgloss.Center)
+
+	return centered.Render(rendered)
+}
 
 func (m model) headerView() string {
 	version := ""
@@ -326,7 +378,9 @@ func (m model) headerView() string {
 
 	title := titleStyle.Render(version)
 	line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(title)))
-	return lipgloss.JoinHorizontal(lipgloss.Center, title, line)
+	rendered := lipgloss.JoinHorizontal(lipgloss.Center, title, line)
+
+	return fmt.Sprintf("%s\n%s", m.releaseList(), rendered)
 }
 
 func (m model) footerView() string {
