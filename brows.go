@@ -32,9 +32,29 @@ var (
 	}()
 )
 
+type tag struct {
+	tag    string
+	parsed *semver.Version
+	prev   *tag
+	next   *tag
+}
+
+type TagList []tag
+
+func (tl TagList) Len() int {
+	return len(tl)
+}
+
+func (tl TagList) Less(i, j int) bool {
+	return tl[i].parsed.LessThan(tl[j].parsed)
+}
+
+func (tl TagList) Swap(i, j int) {
+	tl[i], tl[j] = tl[j], tl[i]
+}
 
 type release struct {
-	version     string
+	tag         string
 	description string
 }
 
@@ -42,9 +62,10 @@ type model struct {
 	owner     string
 	repo      string
 	version   *semver.Version
-	focus     string
+	focus     *tag
 	loaded    bool
 	releases  map[string]release
+	tagList   TagList
 	gh        *github.Client
 	spinner   spinner.Model
 	viewport  viewport.Model
@@ -68,9 +89,9 @@ func initialModel(gh *github.Client, owner, repo, version string) model {
 		owner:    owner,
 		repo:     repo,
 		version:  v,
-		focus:    "",
 		loaded:   false,
 		releases: releases,
+		tagList:  []tag{},
 		gh:       gh,
 		spinner:  spin,
 	}
@@ -96,7 +117,7 @@ func getReleases(gh *github.Client, owner, repo string) tea.Cmd {
 		releases := make(map[string]release)
 		for _, r := range releaseList {
 			releases[asString(r.TagName)] = release{
-				version: asString(r.TagName),
+				tag: asString(r.TagName),
 				description: asString(r.Body),
 			}
 		}
@@ -113,6 +134,34 @@ func asString(s *string) string {
 	return *s
 }
 
+func sortedTags(tags []string) TagList {
+	count := len(tags)
+	tagList := make([]tag, count)
+
+	for i, t := range tags {
+		v, err := semver.NewVersion(t)
+		if err != nil {
+			log.Fatalf("Error parsing current version %v\n", err)
+		}
+
+		tagList[i] = tag{tag: t, parsed: v}
+	}
+
+	sort.Sort(TagList(tagList))
+
+	for i := range tagList {
+		if i > 0 {
+			tagList[i].prev = &tagList[i - 1]
+		}
+
+		if i < count - 1 {
+			tagList[i].next = &tagList[i + 1]
+		}
+	}
+
+	return tagList
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		cmd  tea.Cmd
@@ -123,17 +172,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loadedReleases:
 		// got response back from github, store in model
 		m.releases = map[string]release(msg)
+
+		tags := make([]string, len(m.releases))
+
+		i := 0
+		for k := range m.releases {
+			tags[i] = k
+			i++
+		}
+
+		m.tagList = sortedTags(tags)
 		m.loaded = true
 
-		nextVersion, err := findVersion(true, m.version, m.releases)
+		nextTag, err := findTag(m.version, m.tagList)
 
 		if err != nil {
 			m.err = err
 		} else {
-			m.focus = nextVersion
+			m.focus = nextTag
 		}
 
-		if release, ok := m.releases[m.focus]; ok {
+		if release, ok := m.releases[m.focus.tag]; ok {
 			out, _ := glamour.Render(release.description, "dark")
 			m.viewport.SetContent(out)
 		}
@@ -153,44 +212,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "left", "h":
 			// navigate to previous release
-			v, err := semver.NewVersion(m.focus)
+			prevTag := m.focus.prev
 
-			if err != nil {
-				m.err = err
-			} else {
-				prevVersion, err := findVersion(false, v, m.releases)
+			if prevTag != nil {
+				m.focus = prevTag
 
-				if err != nil {
-					m.err = err
-				} else {
-					m.focus = prevVersion
+				if release, ok := m.releases[m.focus.tag]; ok {
+					out, _ := glamour.Render(release.description, "dark")
+					m.viewport.SetContent(out)
 				}
-			}
-
-			if release, ok := m.releases[m.focus]; ok {
-				out, _ := glamour.Render(release.description, "dark")
-				m.viewport.SetContent(out)
 			}
 
 		case "right", "l":
 			// navigate to next release
-			v, err := semver.NewVersion(m.focus)
+			nextTag := m.focus.next
 
-			if err != nil {
-				m.err = err
-			} else {
-				nextVersion, err := findVersion(true, v, m.releases)
+			if nextTag != nil {
+				m.focus = nextTag
 
-				if err != nil {
-					m.err = err
-				} else {
-					m.focus = nextVersion
+				if release, ok := m.releases[m.focus.tag]; ok {
+					out, _ := glamour.Render(release.description, "dark")
+					m.viewport.SetContent(out)
 				}
-			}
-
-			if release, ok := m.releases[m.focus]; ok {
-				out, _ := glamour.Render(release.description, "dark")
-				m.viewport.SetContent(out)
 			}
 		}
 
@@ -225,46 +268,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func findVersion(greater bool, current *semver.Version, releases map[string]release) (string, error) {
-	// parse versions as semver
-	versions := make([]*semver.Version, len(releases))
-
-	i := 0
-	for raw := range releases {
-		v, err := semver.NewVersion(raw)
-
-		if err != nil {
-			return "", err
-		}
-
-		versions[i] = v
-		i++
-	}
-
-	if greater {
-		sort.Sort(semver.Collection(versions))
-	} else {
-		sort.Sort(sort.Reverse(semver.Collection(versions)))
-	}
-
-	// return adjacent version
-	for i, _ := range versions {
-		if greater {
-			if versions[i].GreaterThan(current) {
-				return "v" + versions[i].String(), nil
-			}
-		} else {
-			if versions[i].LessThan(current) {
-				return "v" + versions[i].String(), nil
-			}
+func findTag(current *semver.Version, tagList TagList) (*tag, error) {
+	// return next semver tag after current
+	for i, _ := range tagList {
+		if tagList[i].parsed.GreaterThan(current) {
+			return &tagList[i], nil
 		}
 	}
 
-	if greater {
-		return "", fmt.Errorf("Could not find version after v%s", current)
-	}
-
-  return "", fmt.Errorf("Could not find version before v%s", current)
+	return nil, fmt.Errorf("Could not find version after v%s", current)
 }
 
 func (m model) View() string {
@@ -281,8 +293,14 @@ func (m model) View() string {
 	return s
 }
 
+
 func (m model) headerView() string {
-	title := titleStyle.Render(m.focus)
+	version := ""
+	if m.focus != nil {
+		version = m.focus.tag
+	}
+
+	title := titleStyle.Render(version)
 	line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(title)))
 	return lipgloss.JoinHorizontal(lipgloss.Center, title, line)
 }
@@ -336,6 +354,7 @@ func main() {
 	client := github.NewClient(tc)
 
 	p := tea.NewProgram(initialModel(client, owner, repo, version), tea.WithAltScreen(), tea.WithMouseCellMotion())
+
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
 		os.Exit(1)
