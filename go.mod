@@ -10,6 +10,7 @@ require (
 	github.com/google/go-github/v48 v48.1.0
 	github.com/masterminds/semver v1.5.0
 	golang.org/x/oauth2 v0.3.0
+	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c
 )
 
 require (

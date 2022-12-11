@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/google/go-github/v48/github"
 	"github.com/masterminds/semver"
 	"golang.org/x/oauth2"
+	"gopkg.in/yaml.v3"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -31,6 +33,28 @@ var (
 		return titleStyle.Copy().BorderStyle(b)
 	}()
 )
+
+type Config struct {
+	DefaultOrg string `yaml:"default_org"`
+}
+
+var AppConfig *Config
+
+const configPath = ".config/brows.yml"
+
+func ReadConfig() {
+	dirname, err := os.UserHomeDir()
+	path := filepath.Join(dirname, configPath)
+
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	decoder := yaml.NewDecoder(f)
+	decoder.Decode(&AppConfig)
+}
 
 type tag struct {
 	tag    string
@@ -335,7 +359,12 @@ func main() {
 
 	parts := strings.Split(repo, "/")
 	if len(parts) == 1 {
-		owner = "gruntwork-io"
+		ReadConfig()
+		if AppConfig == nil {
+			fmt.Println("No organization specified, and no default organization configured.")
+			os.Exit(1)
+		}
+		owner = AppConfig.DefaultOrg
 	} else {
 		owner = parts[0]
 		repo = parts[1]
