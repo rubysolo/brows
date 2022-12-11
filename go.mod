@@ -3,8 +3,10 @@ module github.com/rubysolo/brows
 go 1.19
 
 require (
+	github.com/charmbracelet/bubbles v0.14.1-0.20221201144108-e78f923af622
 	github.com/charmbracelet/bubbletea v0.23.1
 	github.com/charmbracelet/glamour v0.6.0
+	github.com/charmbracelet/lipgloss v0.6.0
 	github.com/google/go-github/v48 v48.1.0
 	github.com/masterminds/semver v1.5.0
 	golang.org/x/oauth2 v0.3.0
