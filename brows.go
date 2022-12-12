@@ -401,15 +401,20 @@ func max(a, b int) int {
 }
 
 func main() {
-	if len(os.Args) < 3 {
+	if len(os.Args) < 2 {
 		fmt.Println("Usage:")
-		fmt.Println("  brows organization/repo version")
+		fmt.Println("  brows organization/repo [version]")
 		os.Exit(1)
 	}
 
+	version := "0.0.0"
+
 	owner := ""
 	repo := os.Args[1]
-	version := os.Args[2]
+
+	if len(os.Args) > 2 {
+		version = os.Args[2]
+	}
 
 	parts := strings.Split(repo, "/")
 	if len(parts) == 1 {
