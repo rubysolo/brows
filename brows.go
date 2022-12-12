@@ -77,27 +77,6 @@ func ReadConfig() {
 	decoder.Decode(&AppConfig)
 }
 
-type tag struct {
-	tag    string
-	parsed *semver.Version
-	prev   *tag
-	next   *tag
-}
-
-type TagList []tag
-
-func (tl TagList) Len() int {
-	return len(tl)
-}
-
-func (tl TagList) Less(i, j int) bool {
-	return tl[i].parsed.LessThan(tl[j].parsed)
-}
-
-func (tl TagList) Swap(i, j int) {
-	tl[i], tl[j] = tl[j], tl[i]
-}
-
 type release struct {
 	tag         string
 	description string
@@ -107,10 +86,10 @@ type model struct {
 	owner     string
 	repo      string
 	version   *semver.Version
-	focus     *tag
+	focus     int
 	loaded    bool
 	releases  map[string]release
-	tagList   TagList
+	tagList   semver.Collection
 	gh        *github.Client
 	spinner   spinner.Model
 	viewport  viewport.Model
@@ -136,7 +115,8 @@ func initialModel(gh *github.Client, owner, repo, version string) model {
 		version:  v,
 		loaded:   false,
 		releases: releases,
-		tagList:  []tag{},
+		tagList:  []*semver.Version{},
+		focus:    -1,
 		gh:       gh,
 		spinner:  spin,
 	}
@@ -179,9 +159,9 @@ func asString(s *string) string {
 	return *s
 }
 
-func sortedTags(tags []string) TagList {
+func sortedTags(tags []string) semver.Collection {
 	count := len(tags)
-	tagList := make([]tag, count)
+	tagList := make([]*semver.Version, count)
 
 	for i, t := range tags {
 		v, err := semver.NewVersion(t)
@@ -189,20 +169,10 @@ func sortedTags(tags []string) TagList {
 			log.Fatalf("Error parsing current version %v\n", err)
 		}
 
-		tagList[i] = tag{tag: t, parsed: v}
+		tagList[i] = v
 	}
 
-	sort.Sort(TagList(tagList))
-
-	for i := range tagList {
-		if i > 0 {
-			tagList[i].prev = &tagList[i - 1]
-		}
-
-		if i < count - 1 {
-			tagList[i].next = &tagList[i + 1]
-		}
-	}
+	sort.Sort(semver.Collection(tagList))
 
 	return tagList
 }
@@ -229,15 +199,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tagList = sortedTags(tags)
 		m.loaded = true
 
-		nextTag, err := findTag(m.version, m.tagList)
+		index, err := findTagIndex(m.version, m.tagList)
 
 		if err != nil {
 			m.err = err
 		} else {
-			m.focus = nextTag
+			m.focus = index
 		}
 
-		if release, ok := m.releases[m.focus.tag]; ok {
+		tag := m.tagList[m.focus]
+
+		if release, ok := m.releases[tag.Original()]; ok {
 			out, _ := glamour.Render(release.description, "dark")
 			m.viewport.SetContent(out)
 		}
@@ -257,12 +229,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "left", "h":
 			// navigate to previous release
-			prevTag := m.focus.prev
+			if m.focus > 0 {
+				m.focus = m.focus - 1
+		    tag := m.tagList[m.focus]
 
-			if prevTag != nil {
-				m.focus = prevTag
-
-				if release, ok := m.releases[m.focus.tag]; ok {
+				if release, ok := m.releases[tag.Original()]; ok {
 					out, _ := glamour.Render(release.description, "dark")
 					m.viewport.SetContent(out)
 				}
@@ -270,12 +241,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "right", "l":
 			// navigate to next release
-			nextTag := m.focus.next
+			if m.focus < len(m.tagList) - 1 {
+				m.focus = m.focus + 1
+		    tag := m.tagList[m.focus]
 
-			if nextTag != nil {
-				m.focus = nextTag
-
-				if release, ok := m.releases[m.focus.tag]; ok {
+				if release, ok := m.releases[tag.Original()]; ok {
 					out, _ := glamour.Render(release.description, "dark")
 					m.viewport.SetContent(out)
 				}
@@ -313,15 +283,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func findTag(current *semver.Version, tagList TagList) (*tag, error) {
+func findTagIndex(current *semver.Version, tagList semver.Collection) (int, error) {
 	// return next semver tag after current
 	for i, _ := range tagList {
-		if tagList[i].parsed.GreaterThan(current) {
-			return &tagList[i], nil
+		if tagList[i].GreaterThan(current) {
+			return i, nil
 		}
 	}
 
-	return nil, fmt.Errorf("Could not find version after v%s", current)
+	return -1, fmt.Errorf("Could not find version after v%s", current)
 }
 
 func (m model) View() string {
@@ -355,21 +325,21 @@ func (m model) releaseList() string {
 	rendered := ""
 	var style lipgloss.Style
 
-	for _, t := range m.tagList {
-		if t.tag == m.focus.tag {
+	for i, t := range m.tagList {
+		if i == m.focus {
 			style = focusStyle
 		} else {
 			style = releaseStyle
 		}
 
 		switch {
-		case isMajor(t.parsed):
+		case isMajor(t):
 			rendered += style.Render("▇")
 
-		case isMinor(t.parsed):
+		case isMinor(t):
 			rendered += style.Render("▅")
 
-		case isPatch(t.parsed):
+		case isPatch(t):
 			rendered += style.Render("▂")
 
 		default:
@@ -383,13 +353,16 @@ func (m model) releaseList() string {
 
 func (m model) headerView() string {
 	version := ""
-	if m.focus != nil {
-		version = m.focus.tag
-	}
+	rendered := fmt.Sprintf("\n%s\n", strings.Repeat("─", max(0, m.viewport.Width)))
 
-	tag := tagStyle.Render(version)
-	line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(tag)))
-	rendered := lipgloss.JoinHorizontal(lipgloss.Center, tag, line)
+	if m.focus >= 0 {
+		tag := m.tagList[m.focus]
+		version = tag.Original()
+
+		tagLabel := tagStyle.Render(version)
+		line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(tagLabel)))
+		rendered = lipgloss.JoinHorizontal(lipgloss.Center, tagLabel, line)
+	}
 
 	return fmt.Sprintf("%s\n%s\n%s", m.Title(), m.releaseList(), rendered)
 }
