@@ -318,15 +318,35 @@ func isPatch(v *semver.Version) bool {
 }
 
 func (m model) releaseList() string {
-	// TODO: take a window of tags (max length = window width)
-	// add next/prev arrows if off window
+	rendered := ""
+	toRender := m.tagList
+
+	var (
+		sliceStart int
+		sliceEnd int
+	)
+
+	if len(m.tagList) > m.viewport.Width {
+		focusPosition := m.focus * (m.viewport.Width - 2) / len(m.tagList)
+		focusPosition = clamp(focusPosition, 1, m.viewport.Width - 2)
+
+		sliceStart = max(0, m.focus - focusPosition + 1)
+		sliceEnd = min(len(m.tagList), sliceStart + m.viewport.Width - 2)
+
+		toRender = m.tagList[sliceStart:sliceEnd]
+
+		if sliceStart > 0 {
+			rendered += releaseStyle.Render("◀")
+		} else {
+			rendered += " "
+		}
+	}
 
 	// render as major/minor/patch
-	rendered := ""
 	var style lipgloss.Style
 
-	for i, t := range m.tagList {
-		if i == m.focus {
+	for i, t := range toRender {
+		if i + sliceStart == m.focus {
 			style = focusStyle
 		} else {
 			style = releaseStyle
@@ -344,6 +364,14 @@ func (m model) releaseList() string {
 
 		default:
 			rendered += style.Render(".")
+		}
+	}
+
+	if len(m.tagList) > m.viewport.Width {
+		if sliceEnd < len(m.tagList) {
+			rendered += releaseStyle.Render("▶")
+		} else {
+			rendered += " "
 		}
 	}
 
@@ -386,11 +414,25 @@ func (m model) footerView() string {
 	return lipgloss.JoinHorizontal(lipgloss.Center, line, info)
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func max(a, b int) int {
 	if a > b {
 		return a
 	}
 	return b
+}
+
+func clamp(v, low, high int) int {
+	if high < low {
+		low, high = high, low
+	}
+	return min(high, max(low, v))
 }
 
 func main() {
@@ -433,6 +475,15 @@ func main() {
 	)
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
+
+	if len(os.Getenv("DEBUG")) > 0 {
+		f, err := tea.LogToFile("debug.log", "debug")
+		if err != nil {
+			fmt.Println("fatal:", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+	}
 
 	p := tea.NewProgram(initialModel(client, owner, repo, version), tea.WithAltScreen(), tea.WithMouseCellMotion())
 
