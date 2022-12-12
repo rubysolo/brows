@@ -21,7 +21,11 @@ import (
 )
 
 var (
-	titleStyle = func() lipgloss.Style {
+	titleStyle = lipgloss.NewStyle().
+												Foreground(lipgloss.Color("#E0E0E0")).
+												Background(lipgloss.Color("#0066CC"))
+
+	tagStyle = func() lipgloss.Style {
 		b := lipgloss.RoundedBorder()
 		b.Right = "├"
 		return lipgloss.NewStyle().BorderStyle(b).Padding(0, 1)
@@ -30,8 +34,22 @@ var (
 	infoStyle = func() lipgloss.Style {
 		b := lipgloss.RoundedBorder()
 		b.Left = "┤"
-		return titleStyle.Copy().BorderStyle(b)
+		return tagStyle.Copy().BorderStyle(b)
 	}()
+
+	hCentered = func(w int) lipgloss.Style {
+		return lipgloss.NewStyle().
+										Width(w).
+										Align(lipgloss.Center)
+	}
+
+	screenCentered = func(w, h int) lipgloss.Style {
+		return lipgloss.NewStyle().
+										Width(w).
+										Align(lipgloss.Center).
+										Height(h).
+										AlignVertical(lipgloss.Center)
+	}
 
 	focusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
 	releaseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5C5C5C"))
@@ -290,7 +308,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	m.viewport, cmd = m.viewport.Update(msg)
-  cmds = append(cmds, cmd)
+	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
 }
@@ -307,17 +325,14 @@ func findTag(current *semver.Version, tagList TagList) (*tag, error) {
 }
 
 func (m model) View() string {
-	s := m.owner + "/" + m.repo + " Releases\n\n"
+	return fmt.Sprintf("%s\n%s\n%s", m.headerView(), m.bodyView(), m.footerView())
+}
 
-	if m.loaded {
-		return fmt.Sprintf("%s\n%s\n%s", m.headerView(), m.viewport.View(), m.footerView())
-	} else {
-		s += fmt.Sprintf("\n\n   %s loading...\n\n", m.spinner.View())
-	}
+func (m model) Title() string {
+	title := fmt.Sprintf(" %s/%s Releases", m.owner, m.repo)
+	title += strings.Repeat(" ", max(0, m.viewport.Width-lipgloss.Width(title)))
 
-	s += "\n[q] quit [h] prev [l] next"
-
-	return s
+	return titleStyle.Render(title)
 }
 
 func isMajor(v *semver.Version) bool {
@@ -358,16 +373,12 @@ func (m model) releaseList() string {
 			rendered += style.Render("▂")
 
 		default:
-			rendered += style.Render("_")
+			rendered += style.Render(".")
 		}
 	}
 
 	// center in window
-	var centered = lipgloss.NewStyle().
-    Width(m.viewport.Width).
-    Align(lipgloss.Center)
-
-	return centered.Render(rendered)
+	return hCentered(m.viewport.Width).Render(rendered)
 }
 
 func (m model) headerView() string {
@@ -376,16 +387,25 @@ func (m model) headerView() string {
 		version = m.focus.tag
 	}
 
-	title := titleStyle.Render(version)
-	line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(title)))
-	rendered := lipgloss.JoinHorizontal(lipgloss.Center, title, line)
+	tag := tagStyle.Render(version)
+	line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(tag)))
+	rendered := lipgloss.JoinHorizontal(lipgloss.Center, tag, line)
 
-	return fmt.Sprintf("%s\n%s", m.releaseList(), rendered)
+	return fmt.Sprintf("%s\n%s\n%s", m.Title(), m.releaseList(), rendered)
+}
+
+func (m model) bodyView() string {
+	if m.loaded {
+		return m.viewport.View()
+	} else {
+		content := fmt.Sprintf("%s loading...", m.spinner.View())
+		return screenCentered(m.viewport.Width, m.viewport.Height).Render(content)
+	}
 }
 
 func (m model) footerView() string {
 	if (m.viewport.VisibleLineCount() >= m.viewport.TotalLineCount()) {
-	  return strings.Repeat("─", m.viewport.Width)
+		return fmt.Sprintf("\n%s\n", strings.Repeat("─", m.viewport.Width))
 	}
 
 	info := infoStyle.Render(fmt.Sprintf("%3.f%%", m.viewport.ScrollPercent()*100))
