@@ -1,7 +1,5 @@
 package main
 
-import "github.com/rubysolo/brows/util"
-
 import (
 	"context"
 	"fmt"
@@ -13,19 +11,20 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/go-github/v48/github"
 	"github.com/masterminds/semver"
+	"github.com/rubysolo/brows/util"
 	"golang.org/x/oauth2"
 	"gopkg.in/yaml.v3"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 var (
 	titleStyle = lipgloss.NewStyle().
-												Foreground(lipgloss.Color("#E0E0E0")).
-												Background(lipgloss.Color("#0066CC"))
+			Foreground(lipgloss.Color("#E0E0E0")).
+			Background(lipgloss.Color("#0066CC"))
 
 	tagStyle = func() lipgloss.Style {
 		b := lipgloss.RoundedBorder()
@@ -41,19 +40,19 @@ var (
 
 	hCentered = func(w int) lipgloss.Style {
 		return lipgloss.NewStyle().
-										Width(w).
-										Align(lipgloss.Center)
+			Width(w).
+			Align(lipgloss.Center)
 	}
 
 	screenCentered = func(w, h int) lipgloss.Style {
 		return lipgloss.NewStyle().
-										Width(w).
-										Align(lipgloss.Center).
-										Height(h).
-										AlignVertical(lipgloss.Center)
+			Width(w).
+			Align(lipgloss.Center).
+			Height(h).
+			AlignVertical(lipgloss.Center)
 	}
 
-	focusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+	focusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
 	releaseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5C5C5C"))
 )
 
@@ -131,6 +130,7 @@ func (m model) Init() tea.Cmd {
 type loadedReleases map[string]release
 
 type errMsg struct{ err error }
+
 func (e errMsg) Error() string { return e.err.Error() }
 
 func getReleases(gh *github.Client, owner, repo string) tea.Cmd {
@@ -144,7 +144,7 @@ func getReleases(gh *github.Client, owner, repo string) tea.Cmd {
 		releases := make(map[string]release)
 		for _, r := range releaseList {
 			releases[asString(r.TagName)] = release{
-				tag: asString(r.TagName),
+				tag:         asString(r.TagName),
 				description: asString(r.Body),
 			}
 		}
@@ -155,8 +155,8 @@ func getReleases(gh *github.Client, owner, repo string) tea.Cmd {
 
 func asString(s *string) string {
 	if s == nil {
-			temp := ""
-			s = &temp
+		temp := ""
+		s = &temp
 	}
 	return *s
 }
@@ -222,7 +222,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg
 		return m, tea.Quit
 
-
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":
@@ -233,7 +232,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// navigate to previous release
 			if m.focus > 0 {
 				m.focus = m.focus - 1
-		    tag := m.tagList[m.focus]
+				tag := m.tagList[m.focus]
 
 				if release, ok := m.releases[tag.Original()]; ok {
 					out, _ := glamour.Render(release.description, "dark")
@@ -243,9 +242,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "right", "l":
 			// navigate to next release
-			if m.focus < len(m.tagList) - 1 {
+			if m.focus < len(m.tagList)-1 {
 				m.focus = m.focus + 1
-		    tag := m.tagList[m.focus]
+				tag := m.tagList[m.focus]
 
 				if release, ok := m.releases[tag.Original()]; ok {
 					out, _ := glamour.Render(release.description, "dark")
@@ -325,15 +324,15 @@ func (m model) releaseList() string {
 
 	var (
 		sliceStart int
-		sliceEnd int
+		sliceEnd   int
 	)
 
 	if len(m.tagList) > m.viewport.Width {
 		focusPosition := m.focus * (m.viewport.Width - 2) / len(m.tagList)
-		focusPosition = clamp(focusPosition, 1, m.viewport.Width - 2)
+		focusPosition = clamp(focusPosition, 1, m.viewport.Width-2)
 
-		sliceStart = max(0, m.focus - focusPosition + 1)
-		sliceEnd = min(len(m.tagList), sliceStart + m.viewport.Width - 2)
+		sliceStart = max(0, m.focus-focusPosition+1)
+		sliceEnd = min(len(m.tagList), sliceStart+m.viewport.Width-2)
 
 		toRender = m.tagList[sliceStart:sliceEnd]
 
@@ -348,7 +347,7 @@ func (m model) releaseList() string {
 	var style lipgloss.Style
 
 	for i, t := range toRender {
-		if i + sliceStart == m.focus {
+		if i+sliceStart == m.focus {
 			style = focusStyle
 		} else {
 			style = releaseStyle
@@ -407,7 +406,7 @@ func (m model) bodyView() string {
 }
 
 func (m model) footerView() string {
-	if (m.viewport.VisibleLineCount() >= m.viewport.TotalLineCount()) {
+	if m.viewport.VisibleLineCount() >= m.viewport.TotalLineCount() {
 		return fmt.Sprintf("\n%s\n", strings.Repeat("─", m.viewport.Width))
 	}
 
