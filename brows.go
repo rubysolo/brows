@@ -1,5 +1,7 @@
 package main
 
+import "github.com/rubysolo/brows/util"
+
 import (
 	"context"
 	"fmt"
@@ -464,10 +466,7 @@ func main() {
 		repo = parts[1]
 	}
 
-	token := os.Getenv("GITHUB_OAUTH_TOKEN")
-	if token == "" {
-		log.Fatal("no GITHUB_OAUTH_TOKEN provided.")
-	}
+	token := util.GetGHToken()
 
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(

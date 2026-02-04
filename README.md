@@ -20,8 +20,7 @@ brew install brows
 ```
 
 ## Configuration:
-
-  * (Required) Set the `GITHUB_OAUTH_TOKEN` environment variable to a [GitHub PAT](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for access to the GitHub API.
+  * (Required) A GitHub auth token is required. It can be set by the `GITHUB_OAUTH_TOKEN` environment variable to a [GitHub PAT](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) or, if the environment variable is not set, Brows will attempt to use the token from the [GitHub CLI](https://cli.github.com/) (`gh auth token`) if available (CLI installed and logged in).
   * (Optional) Create a config file at `$HOME/.config/brows.yml` and set a `default_org` key, like:
 
 ```
